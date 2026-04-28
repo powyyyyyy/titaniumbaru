@@ -168,6 +168,7 @@
 	char UART2_TX_BUFFER[9] = "ABC"; //--- RGB LED
 
 	//---- ARM
+	uint8_t arm_start_cmd = 0;
 	uint8_t arm_ready = 0;
 	uint8_t robot_start = 0;
 	uint8_t relay_state = 0;
@@ -241,7 +242,7 @@
 
 	void Robot_Init()
 	{
-		robot_start = 1;
+		//robot_start = 1;
 		Motor_Init(	&motorA,
 					GPIOC, GPIO_PIN_15,
 					GPIOC, GPIO_PIN_13,
@@ -986,20 +987,21 @@
 
 	void Start_Autonomous_Base()
 	{
-		// kalau scan lagi jalan, matikan dulu
-		conveyor_scan_mode = 0;
-		scan_state = SCAN_IDLE;
+	    conveyor_scan_mode = 0;
+	    scan_state = SCAN_IDLE;
 
-		auto_mode = 1;
-		auto_state = AUTO_FORWARD_1;
+	    arm_start_cmd = 0;   // larang arm dulu
 
-		auto_start_x = global_x;
-		auto_start_y = global_y;
-		auto_start_yaw = yaw_degree;
+	    auto_mode = 1;
+	    auto_state = AUTO_FORWARD_1;
 
-		auto_target_x = auto_start_x - 240.0f;
-		auto_target_yaw = auto_start_yaw - 75.0f;
-		auto_target_y = 0.0f;
+	    auto_start_x = global_x;
+	    auto_start_y = global_y;
+	    auto_start_yaw = yaw_degree;
+
+	    auto_target_x = auto_start_x + 153.0f;
+	    auto_target_yaw = auto_start_yaw + 74.0f;
+	    auto_target_y = 0.0f;
 	}
 
 	void Toggle_Conveyor_Scan()
@@ -1085,8 +1087,16 @@
 	    static uint8_t prev_sqr = 0;
 	    static uint8_t prev_cir = 0;
 
+	    if(udp_tx.sqr && !prev_sqr)
+	   	    {
+	   	    	   robot_start = 1;
+	   	    	    rst_state = 0;
+
+	   	        Start_Autonomous_Base();
+	   	    }
 	    if(!robot_start)
 	    {
+	    	arm_start_cmd = 0;
 	        yaw_adjust = yaw_flip;
 	        global_x = 0;
 	        global_y = 0;
@@ -1111,10 +1121,7 @@
 	    vx = vy = vw = 0;
 
 	    // tombol global
-	    if(udp_tx.sqr && !prev_sqr)
-	    {
-	        Start_Autonomous_Base();
-	    }
+
 	    prev_sqr = udp_tx.sqr;
 
 	    if(udp_tx.cir && !prev_cir)
@@ -1131,28 +1138,28 @@
 	    {
 	        switch(auto_state)
 	        {
-	            case AUTO_FORWARD_1:
-	                if(global_x > (auto_target_x + AUTO_TOL_X))
-	                {
-	                    vx = -5;
-	                    vy = 0;
-	                    vw = 0;
-	                }
-	                else
-	                {
-	                    vx = 0;
-	                    vy = 0;
-	                    vw = 0;
-	                    auto_state = AUTO_TURN_90;
-	                }
-	                break;
+	        case AUTO_FORWARD_1:
+	            if(global_x < (auto_target_x - AUTO_TOL_X))
+	            {
+	                vx = 5;
+	                vy = 0;
+	                vw = 0;
+	            }
+	            else
+	            {
+	                vx = 0;
+	                vy = 0;
+	                vw = 0;
+	                auto_state = AUTO_TURN_90;
+	            }
+	            break;
 
 	            case AUTO_TURN_90:
-	                if(yaw_degree > (auto_target_yaw + AUTO_TOL_YAW))
+	                if(yaw_degree < (auto_target_yaw + AUTO_TOL_YAW))
 	                {
 	                    vx = 0;
 	                    vy = 0;
-	                    vw = -2;
+	                    vw = 2;
 	                }
 	                else
 	                {
@@ -1161,13 +1168,13 @@
 	                    vw = 0;
 
 	                    auto_start_y = global_y;
-	                    auto_target_y = auto_start_y - 180.0f;
+	                    auto_target_y = auto_start_y + 167.0f;
 	                    auto_state = AUTO_FORWARD_2;
 	                }
 	                break;
 
 	            case AUTO_FORWARD_2:
-	                if(global_y > (auto_target_y + AUTO_TOL_Y))
+	                if(global_y < (auto_target_y - AUTO_TOL_Y))
 	                {
 	                    vx = 5;
 	                    vy = 0;
@@ -1187,6 +1194,8 @@
 	                vy = 0;
 	                vw = 0;
 	                auto_mode = 0;
+	                auto_state = AUTO_IDLE;
+	                arm_start_cmd = 1;
 	                break;
 
 	            case AUTO_IDLE:
@@ -1695,15 +1704,14 @@
 
 	void Arm_Transmit_UART()
 	{
-		//--- VGT ARM
-		memcpy(UART1_TX_BUFFER +  3, &robot_start, 1);
-		memcpy(UART1_TX_BUFFER +  4, &rst_state, 1);
-		memcpy(UART1_TX_BUFFER +  5, &relay_state, 1);
-		memcpy(UART1_TX_BUFFER +  6, &set_speed_rot, 2);
-		memcpy(UART1_TX_BUFFER +  8, &set_speed_hor, 2);
-		memcpy(UART1_TX_BUFFER + 10, &set_speed_ver, 2);
+	    memcpy(UART1_TX_BUFFER +  3, &arm_start_cmd, 1);   // kirim command arm, bukan robot_start base
+	    memcpy(UART1_TX_BUFFER +  4, &rst_state, 1);
+	    memcpy(UART1_TX_BUFFER +  5, &relay_state, 1);
+	    memcpy(UART1_TX_BUFFER +  6, &set_speed_rot, 2);
+	    memcpy(UART1_TX_BUFFER +  8, &set_speed_hor, 2);
+	    memcpy(UART1_TX_BUFFER + 10, &set_speed_ver, 2);
 
-		HAL_UART_Transmit_DMA(&huart1, (uint8_t*)UART1_TX_BUFFER, sizeof(UART1_TX_BUFFER));
+	    HAL_UART_Transmit_DMA(&huart1, (uint8_t*)UART1_TX_BUFFER, sizeof(UART1_TX_BUFFER));
 	}
 
 	void Read_Buttons()
@@ -1716,13 +1724,13 @@
 
 		if(udp_tx.start_button == 0 && arm_ready)
 		{
-			robot_start = 1;
+		//	robot_start = 1;
 			rst_state = 0;
 		}
 
 		if(udp_tx.reset_button == 0)
 		{
-			robot_start = 0;
+		//	robot_start = 0;
 			rst_state = 1;
 		}
 	}
@@ -1733,6 +1741,7 @@
 		{
 			if(rst_cnt >= 500)
 			{
+				arm_start_cmd = 0;
 				NVIC_SystemReset();
 			}
 			else
